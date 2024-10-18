@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import { Button } from "@/components/ui/button"
 import {
@@ -16,13 +17,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useEffect, useState } from "react";
-import { PlusCircle, Trash } from "lucide-react"
+import { PlusCircle, Trash, Play, Square, Smartphone } from "lucide-react"
 import { RunnerDialog } from "@/page_components/RunnerDialog"
 import { databaseService } from '@/services/DatabaseService';
 import type { Runner } from "@/types/Runner";
 import { useAppDispatch, useAppSelector } from '@/hooks/reduxHooks';
 import { setRunners, deleteRunner, updateRunner } from '@/store/slices/runnersSlice';
+import { useAppSelector as useSelector } from '@/hooks/reduxHooks';
+import { RootState } from '@/store/store';
+import { Device } from '@/types/Device';
+import ScreenMirror from '@/components/ScreenMirror';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 
 export default function Runner() {
   const [openActionDialog, setOpenActionDialog] = useState(false);
@@ -30,9 +39,16 @@ export default function Runner() {
     name: '',
     data: [{}]
   });
+  const [workflowMap, setWorkflowMap] = useState(new Map<number, string>());
+  const [isRunning, setIsRunning] = useState<{ [key: number]: boolean }>({});
+  const [workers, setWorkers] = useState<{ [key: number]: Worker | null }>({});
+  const devices = useSelector((state: RootState) => state.devices.devices);
+  console.log("devices: ", devices);
 
   const dispatch = useAppDispatch();
   const runners = useAppSelector((state) => state.runners.runners);
+
+  const [openScreenMirrors, setOpenScreenMirrors] = useState<{ [key: string]: boolean }>({});
 
   const handleDelete = async (id: number) => {
     try {
@@ -102,8 +118,51 @@ export default function Runner() {
     });
   };
 
+  const handlePlay = async (id: number) => {
+    if (isRunning[id]) {
+      // Stop the workflow
+      if (workers[id]) {
+        console.log(`Workflow for runner ${id} force stopping!!!`);
+        workers[id]?.terminate();
+        setWorkers(prev => ({ ...prev, [id]: null }));
+      }
+      setIsRunning(prev => ({ ...prev, [id]: false }));
+    } else {
+      try {
+        const runner = await databaseService.runners.getRunner(id);
+        if (runner && runner.workflowId && runner.deviceId) {
+          const workflow = await databaseService.workflows.getWorkflow(runner.workflowId);
+          const device = devices.find((d: Device) => d.id === runner.deviceId);
+          if (workflow && device) {
+            // Start the workflow
+            const newWorker = new Worker(new URL('../services/WorkflowRunnerWorker.ts', import.meta.url), { type: 'module' });
+            newWorker.onmessage = (event) => {
+              const { success, result, error } = event.data;
+              if (success) {
+                console.log(`Workflow for runner ${id} executed successfully`, result);
+              } else {
+                console.error(`Unexpected error in workflowRunner for runner ${id}`, error);
+              }
+              setIsRunning(prev => ({ ...prev, [id]: false }));
+              setWorkers(prev => ({ ...prev, [id]: null }));
+            };
+            newWorker.postMessage({ workflow, device: device, runnerData: runner.data });
+            setWorkers(prev => ({ ...prev, [id]: newWorker }));
+            setIsRunning(prev => ({ ...prev, [id]: true }));
+          } else {
+            console.error(`Workflow not found for runner ${id}`);
+          }
+        } else {
+          console.error(`Runner ${id} not found or has no associated workflow`);
+        }
+      } catch (error) {
+        console.error("Error playing runner:", error);
+      }
+    }
+  };
+
   useEffect(() => {
-    async function fetchRunners() {
+    async function fetchData() {
       try {
         const fetchedRunners = await databaseService.runners.getAllRunners();
         const serializedRunners = fetchedRunners.map(runner => ({
@@ -113,13 +172,18 @@ export default function Runner() {
           data: Array.isArray(runner.data) ? runner.data : [runner.data]
         }));
         dispatch(setRunners(serializedRunners));
+
+        const fetchedWorkflows = await databaseService.workflows.getAllWorkflows();
+        const newWorkflowMap = new Map(fetchedWorkflows.map(w => [w.id, w.name]));
+        setWorkflowMap(newWorkflowMap);
+
         console.log('All runners:', serializedRunners);
       } catch (error) {
-        console.error('Error fetching runners:', error);
+        console.error('Error fetching data:', error);
       }
     }
     
-    fetchRunners();
+    fetchData();
   }, []);
 
   return (
@@ -129,6 +193,7 @@ export default function Runner() {
         setOpen={setOpenActionDialog}
         runnerForm={runnerForm}
         setRunnerForm={handleSetRunnerForm}
+        devices={devices}
       />
       <div className="w-full items-start gap-4">
         <div className="grid auto-rows-max items-start gap-4">
@@ -157,6 +222,7 @@ export default function Runner() {
                           <TableRow>
                             <TableHead>Id</TableHead>
                             <TableHead>Name</TableHead>
+                            <TableHead>Workflow</TableHead>
                             <TableHead className="hidden sm:table-cell max-w-52">
                               Data
                             </TableHead>
@@ -167,7 +233,7 @@ export default function Runner() {
                               Created At
                             </TableHead>
                             <TableHead className="hidden md:table-cell">
-                              Delete
+                              Actions
                             </TableHead>
                           </TableRow>
                         </TableHeader>
@@ -180,19 +246,40 @@ export default function Runner() {
                             >
                               <TableCell>{runner.id}</TableCell>
                               <TableCell>{runner.name}</TableCell>
+                              <TableCell>{workflowMap.get(runner.workflowId) || ''}</TableCell>
                               <TableCell className="max-w-52 truncate">{JSON.stringify(runner.data)}</TableCell>
                               <TableCell>{new Date(runner.updatedAt).toLocaleString()}</TableCell>
                               <TableCell>{new Date(runner.createdAt).toLocaleString()}</TableCell>
                               <TableCell>
-                                <Button 
-                                  variant="ghost" 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDelete(runner.id);
-                                  }}
-                                >
-                                  <Trash className="h-3.5 w-3.5" />
-                                </Button>
+                                <div className="flex space-x-2">
+                                  <Button 
+                                    variant="ghost" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenScreenMirrors(prev => ({...prev, [runner.id]: true}));
+                                    }}
+                                  >
+                                    <Smartphone className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePlay(runner.id);
+                                    }}
+                                  >
+                                    {isRunning[runner.id] ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDelete(runner.id);
+                                    }}
+                                  >
+                                    <Trash className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -204,6 +291,16 @@ export default function Runner() {
               </Card>
         </div>
       </div>
+      {Object.entries(openScreenMirrors).map(([runnerId, isOpen]) => 
+        isOpen && (
+          <ScreenMirror 
+            key={runnerId}
+            device={devices.find((d: Device) => d.id === runners.find(r => r.id.toString() === runnerId)?.deviceId)}
+            wrapperClassName="2xl:min-w-[30px] 2xl:max-w-[400px] fixed top-20 left-20 z-50"
+            onClose={() => setOpenScreenMirrors(prev => ({...prev, [runnerId]: false}))}
+          />
+        )
+      )}
     </Layout>
   )
 }

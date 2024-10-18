@@ -2,6 +2,7 @@ export interface Runner {
   id: number;
   name: string;
   workflowId: number;
+  deviceId: string;
   data: Array<{
     variable: string;
     type: string;

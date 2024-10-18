@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef, useContext } from "react";
-import { ArrowBigLeft, ArrowLeft, CirclePlus, House, LayoutGrid, MoveDown, MoveLeft, MoveRight, Play, Plus, PlusCircle, RefreshCcw, Square, Sun } from "lucide-react"
+import { ArrowBigLeft, ArrowLeft, CirclePlus, FileSliders, House, LayoutGrid, MoveDown, MoveLeft, MoveRight, Play, Plus, PlusCircle, RefreshCcw, Square, Sun } from "lucide-react"
 import Layout from '@/components/Layout';
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,6 +35,13 @@ import '@xyflow/react/dist/style.css';
 import { WorkflowContext } from "@/contexts/WorkflowContext";
 import { ActionContext } from "@/contexts/ActionContext";
 import WorkflowRunnerService from "@/services/WorkflowRunnerService";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Check, ChevronsUpDown } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { RunnerDialog } from "@/page_components/RunnerDialog";
+import { Runner } from "@/types/Runner";
+import { updateRunner } from "@/store/slices/runnersSlice";
 
 export default function WorkflowDetail() {
   const dispatch = useAppDispatch();
@@ -47,6 +54,32 @@ export default function WorkflowDetail() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [worker, setWorker] = useState<Worker | null>(null);
+  const [openRunnerSelect, setOpenRunnerSelect] = useState(false);
+  const [selectedRunner, setSelectedRunner] = useState<Runner | null>(null);
+  const [runners, setRunners] = useState<Runner[]>([]);
+  const [openRunnerDialog, setOpenRunnerDialog] = useState(false);
+  const [runnerForm, setRunnerForm] = useState<Runner>({
+    id: 0,
+    name: '',
+    deviceId: '',
+    data: [],
+    updatedAt: new Date(),
+    createdAt: new Date()
+  });
+  const devices = useAppSelector((state: RootState) => state.devices.devices);
+
+  useEffect(() => {
+    const fetchRunners = async () => {
+      try {
+        const fetchedRunners = await databaseService.runners.getAllRunners();
+        setRunners(fetchedRunners);
+      } catch (error) {
+        console.error("Error fetching runners:", error);
+      }
+    };
+    fetchRunners();
+  }, []);
+
   const onConnect: OnConnect = useCallback((connection) => {
     console.log("New connection:", connection);
     return setEdges((edges) => {
@@ -255,7 +288,7 @@ export default function WorkflowDetail() {
         setIsRunning(false);
         setWorker(null);
       };
-      newWorker.postMessage({ workflow, device: currentDevice });
+      newWorker.postMessage({ workflow, device: currentDevice, runner: runnerForm });
       setWorker(newWorker);
       setIsRunning(true);
     }
@@ -289,18 +322,127 @@ export default function WorkflowDetail() {
     onNodesChange(changes)
   }
 
+  function handleSetRunnerForm(updater: (prevRunner: Runner) => Runner, isSaved: boolean = true) {
+    setRunnerForm((prevRunner: Runner) => {
+      const currentRunner = updater(prevRunner);
+      console.log("currentRunner: ", currentRunner);
+
+      // Update the runner in the database and Redux store
+      if (currentRunner && currentRunner.id) {
+        databaseService.runners.updateRunner(currentRunner.id, currentRunner)
+          .then(() => {
+            console.log("Runner updated in database:", currentRunner);
+            // Dispatch action to update Redux store
+            dispatch(updateRunner({
+              ...currentRunner,
+              updatedAt: new Date().toISOString(),
+              createdAt: currentRunner.createdAt.toISOString()
+            }));
+          })
+          .catch((error) => {
+            console.error("Error updating runner in database:", error);
+          });
+        return currentRunner;
+      } else {
+        if (isSaved) {
+          console.error("Cannot update runner: missing id", currentRunner);
+          return prevRunner;
+        } else {
+          console.log("Runner temporary updated:", currentRunner);
+          return currentRunner;
+        }
+      }
+    });
+  }
+
+  const handleOpenRunnerDialog = async () => {
+    try {
+      if (selectedRunner) { 
+        const runner = await databaseService.runners.getRunner(selectedRunner?.id);
+        console.log("runner: ", runner)
+        if (runner) {
+          console.log("runner: ", runner);
+          // Set Runner Form
+          handleSetRunnerForm((prevRunner: Runner) => ({
+            ...runner,
+            workflowId: (workflow as Workflow).id
+          }), false);
+          setOpenRunnerDialog(true);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching runner:", error);
+    }
+  };
+
   return (
     <Layout currentPage="Workflows">
       <WorkflowContext.Provider value={{ workflow, setWorkflow: handleSetWorkflow, currentActionId }}>
         <ActionDialog open={openActionDialog} setOpen={setOpenActionDialog} />
-        <ScreenMirror />
+        <ScreenMirror device={currentDevice} />
         <div className="w-full items-start gap-4 flex">
           <Card className="sm:col-span-2 flex-grow" x-chunk="dashboard-05-chunk-0">
             <CardHeader className="pb-3">
               <CardTitle className="flex justify-between items-center">
-                <div className="flex flex-col">
-                  <div>Flow: {workflow.name}</div>
-                  <div className="text-sm font-normal">Build your workflow here</div>
+                <div className="flex flex-col w-full mr-2">
+                  <div className="flex flex-row gap-2 items-center justify-between">
+                    <div className="flex flex-row gap-2 items-center">
+                      <div className="text-lg font-semibold">Flow:</div>
+                      <div className="text-lg font-normal">{workflow.name}</div>
+                    </div>
+                    <div className="flex flex-row gap-2 items-center">
+                      <div className="text-lg font-semibold">Runner:</div>
+                      <Popover open={openRunnerSelect} onOpenChange={setOpenRunnerSelect}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={openRunnerSelect}
+                            className="w-[200px] justify-between"
+                          >
+                            {selectedRunner ? selectedRunner.name : "Select a runner"}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[200px] p-0">
+                          <Command>
+                            <CommandInput placeholder="Search a runner" />
+                            <CommandList>
+                              <CommandEmpty>No runner found.</CommandEmpty>
+                              <CommandGroup>
+                                {runners.map((runner) => (
+                                  <CommandItem
+                                    key={runner.id}
+                                    value={runner.id.toString()}
+                                    onSelect={() => {
+                                      setSelectedRunner(runner);
+                                      setOpenRunnerSelect(false);
+                                      setRunnerForm(runner);
+                                      // Add logic here to load the selected runner
+                                    }}
+                                    className={cn(
+                                      selectedRunner?.id === runner.id && "bg-accent"
+                                    )}
+                                  >
+                                    {runner.name}
+                                    <Check
+                                      className={cn(
+                                        "ml-auto h-4 w-4",
+                                        selectedRunner?.id === runner.id ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <Button variant="outline" size="icon" onClick={handleOpenRunnerDialog}>
+                        <FileSliders />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
                 <Button variant="outline" size="icon" onClick={workflowRunner}>
                   {isRunning ? <Square /> : <Play />}
@@ -308,7 +450,7 @@ export default function WorkflowDetail() {
               </CardTitle>
               <Separator className="my-2" />
             </CardHeader>
-            <CardContent className="flex flex-col items-center px-6 py-0 text-sm gap-2 flex-wrap h-[600px]">
+            <CardContent className="flex flex-col items-center px-6 py-0 text-sm gap-2 flex-wrap h-[600px] 2xl:min-h-[800px]">
               <ReactFlow
                 nodes={nodes}
                 nodeTypes={{ 'position-logger': PositionLoggerNode }}
@@ -330,6 +472,15 @@ export default function WorkflowDetail() {
             </CardFooter>
           </Card>
         </div>
+        <RunnerDialog
+          open={openRunnerDialog}
+          setOpen={setOpenRunnerDialog}
+          runnerForm={runnerForm}
+          setRunnerForm={handleSetRunnerForm}
+          devices={devices}
+          workflow={workflow}
+          isHideWorkflow={true}
+        />
       </WorkflowContext.Provider>
     </Layout>
   )

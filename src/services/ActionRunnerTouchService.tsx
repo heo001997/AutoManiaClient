@@ -30,7 +30,7 @@ export default class ActionRunnerTouchService {
           throw new Error('Invalid action subType for tap operation');
       }
     } catch (error) {
-      console.error("Unexpected error in ActionRunnerService: ", error);
+      console.error("Unexpected error in ActionRunnerTouchService: ", error);
       return { success: false, error: error }
     }
   }
@@ -108,11 +108,14 @@ export default class ActionRunnerTouchService {
   }
 
   private async getImageDimensions(imageSrc: string): Promise<{ width: number, height: number }> {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve({ width: img.width, height: img.height });
-      img.src = imageSrc;
-    });
+    // Convert base64 to Blob
+    const base64Response = await fetch(imageSrc);
+    const blob = await base64Response.blob();
+
+    // Create ImageBitmap
+    const bitmap = await createImageBitmap(blob);
+
+    return { width: bitmap.width, height: bitmap.height };
   }
 
   private async captureScreenshot(): Promise<string> {

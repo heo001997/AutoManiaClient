@@ -2,6 +2,7 @@ import { Device } from "../types/Device";
 import ActionRunnerTouchService from "./ActionRunnerTouchService";
 import ActionRunnerApkService from "./ActionRunnerApkService";
 import ActionRunnerTypingService from "./ActionRunnerTypingService";
+import ActionRunnerPressService from "./ActionRunnerPressService";
 
 export default class ActionRunnerService {
   private action: object;
@@ -21,6 +22,8 @@ export default class ActionRunnerService {
         service = new ActionRunnerTouchService(this.action, this.device);
       } else if (actionType === 'typing') {
         service = new ActionRunnerTypingService(this.action, this.device);
+      } else if (actionType === 'press') {
+        service = new ActionRunnerPressService(this.action, this.device);
       } else if (actionType === 'apk') {
         service = new ActionRunnerApkService(this.action, this.device);
       } else if (actionType === 'wait') {

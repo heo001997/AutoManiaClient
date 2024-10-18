@@ -1,19 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toggle } from "@/components/ui/toggle"
 import { Button } from "@/components/ui/button"
-import { ArrowBigLeft, House, LayoutGrid, Sun } from "lucide-react"
+import { ArrowBigLeft, House, LayoutGrid, Sun, X } from "lucide-react"
 import { Device } from '@/types/Device';
 import { useAppDispatch, useAppSelector } from '@/hooks/reduxHooks';
 import { addDevice, setCurrentDevice } from '@/store/slices/devicesSlice';
 import { RootState } from '@/store';
 import JSADBClient from '@/services/JSADBClient';
+import Draggable from 'react-draggable';
 
-const ScreenMirror = () => {
-  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+interface ScreenMirrorProps {
+  device: Device;
+  wrapperClassName?: string;
+  onClose?: () => void;
+}
+
+const ScreenMirror: React.FC<ScreenMirrorProps> = ({ device, wrapperClassName, onClose }) => {
   const [keepScreenOnActive, setKeepScreenOnActive] = useState(false);
   const jsadb = new JSADBClient();
+  const nodeRef = useRef(null);
 
   const dispatch = useAppDispatch();
   const devices = useAppSelector((state: RootState) => state.devices.devices);
@@ -23,10 +30,10 @@ const ScreenMirror = () => {
 
   const handleKeepScreenOnToggle = async (isPressed: boolean) => {
     setKeepScreenOnActive(isPressed);
-    if (selectedDevice) {
+    if (device) {
       try {
         const jsadbClient = new JSADBClient();
-        const response = await jsadbClient.screenAwake(selectedDevice.id, isPressed);
+        const response = await jsadbClient.screenAwake(device.id, isPressed);
         if (!response.success) {
           console.error(`Failed to keep screen on: ${response.error}`);
           setKeepScreenOnActive(!isPressed); // Revert the state if the API call fails
@@ -76,132 +83,120 @@ const ScreenMirror = () => {
     }
   };
 
-  const handleDeviceChange = (deviceId: string) => {
-    const device = devices.find((d: Device) => d.id === deviceId);
-    if (device) {
-      dispatch(setCurrentDevice(device));
-      
-      // Construct the screencap mirror URL
-      const baseUrl = 'localhost:9745';
-      const params = new URLSearchParams({
-        action: 'stream',
-        udid: device.deviceId,
-        player: 'broadway',
-        ws: `ws://${baseUrl}/?action=proxy-adb&remote=tcp:8886&udid=${device.deviceId}`
-      });
-      const screencapUrl = `http://${baseUrl}/#!${params.toString()}`;
-      
-      // Update the screencap mirror
-      updateScreencapMirror(screencapUrl);
-    }
+  const handleDeviceChange = () => {
+    dispatch(setCurrentDevice(device));
+    if (!device) return;
+    
+    // Construct the screencap mirror URL
+    const baseUrl = 'localhost:9745';
+    const params = new URLSearchParams({
+      action: 'stream',
+      udid: device.deviceId,
+      player: 'broadway',
+      ws: `ws://${baseUrl}/?action=proxy-adb&remote=tcp:8886&udid=${device.deviceId}`
+    });
+    const screencapUrl = `http://${baseUrl}/#!${params.toString()}`;
+    
+    // Update the screencap mirror
+    updateScreencapMirror(screencapUrl);
   };
 
   const handleBackClick = async () => {
-    if (selectedDevice) {
-      await jsadb.runCommand(`input keyevent 4`);
+    if (device) {
+      await jsadb.runCommand(`input keyevent 4`, device.id);
     }
   };
 
   const handleHomeClick = async () => {
-    if (selectedDevice) {
-      await jsadb.goToHome(selectedDevice.id);
+    if (device) {
+      await jsadb.goToHome(device.id);
     }
   };
 
   const handleMenuClick = async () => {
-    if (selectedDevice) {
-      await jsadb.runCommand(`input keyevent 187`);
+    if (device) {
+      await jsadb.runCommand(`input keyevent 187`, device.id);
     }
   };
 
   useEffect(() => {
-    const jsadbClient = new JSADBClient();
-    jsadbClient.getDeviceList().then((fetchedDevices) => {
-      console.log("All Devices: ", fetchedDevices);
-      fetchedDevices.forEach((device) => {
-        dispatch(addDevice(device));
-      });
-
-      if (fetchedDevices.length === 1) {
-        setSelectedDevice(fetchedDevices[0]);
-        handleDeviceChange(fetchedDevices[0].id);
-      }
-
-      const storedCurrentDevice = localStorage.getItem('currentDevice');
-      if (storedCurrentDevice) {
-        const currentDevice = JSON.parse(storedCurrentDevice) as Device;
-        handleDeviceChange(currentDevice.id);
-      }
-    });
-  }, [devices]);
+    handleDeviceChange();
+  }, [device]);
 
   return (
-    <div className="min-w-[350px] max-w-[500px] xl:min-w-[320px] 2xl:min-w-[450px]">
-      <Card className="overflow-hidden" x-chunk="dashboard-05-chunk-4">
-        <CardHeader className="bg-muted/50 p-4">
-          <div className="flex justify-center gap-1 items-center">
-            <Select 
-              onValueChange={handleDeviceChange}
-              value={selectedDevice?.deviceId}
-            >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select a device" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {availableDevices}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <div className="flex items-center space-x-2">
-              <Toggle
-                size="sm"
-                pressed={keepScreenOnActive}
-                onPressedChange={handleKeepScreenOnToggle}
-                variant="outline"
-                className={`flex items-center gap-2 h-8 px-2 ${
-                  keepScreenOnActive
-                    ? 'bg-accent text-accent-foreground border-2 border-dashed'
-                    : 'bg-background text-foreground hover:bg-accent hover:text-accent-foreground'
-                }`}
-              >
-                <Sun className="h-3.5 w-3.5" />
-                <span className="lg:sr-only xl:not-sr-only xl:whitespace-nowrap">
-                  Awake
-                </span>
-              </Toggle>
+    <Draggable handle=".drag-handle" nodeRef={nodeRef}>
+      <div ref={nodeRef} className={`min-w-[350px] max-w-[500px] xl:min-w-[320px] 2xl:min-w-[450px] ${wrapperClassName}`}>
+        <Card className="overflow-hidden" x-chunk="dashboard-05-chunk-4">
+          <CardHeader className="bg-muted/50 p-4 drag-handle cursor-move">
+            <div className="flex justify-between items-center">
+              <div className="flex gap-1 items-center">
+                <Select 
+                  onValueChange={handleDeviceChange}
+                  value={device?.deviceId}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select a device" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {availableDevices}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <Toggle
+                  size="sm"
+                  pressed={keepScreenOnActive}
+                  onPressedChange={handleKeepScreenOnToggle}
+                  variant="outline"
+                  className={`flex items-center gap-2 h-8 px-2 ${
+                    keepScreenOnActive
+                      ? 'bg-accent text-accent-foreground border-2 border-dashed'
+                      : 'bg-background text-foreground hover:bg-accent hover:text-accent-foreground'
+                  }`}
+                >
+                  <Sun className="h-3.5 w-3.5" />
+                  <span className="lg:sr-only xl:not-sr-only xl:whitespace-nowrap">
+                    Awake
+                  </span>
+                </Toggle>
+                {onClose && (
+                  <Button variant="outline" size="sm" onClick={onClose}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0 screencap-mirror text-sm">
-          {/* The screencap mirror will be inserted here by the updateScreencapMirror function */}
-        </CardContent>
-        <CardFooter className="flex flex-col justify-center border-t bg-muted/50 px-6 py-3">
-          <div>
-            <div className="flex justify-center gap-1">
-              <Button size="sm" variant="outline" className="h-8 gap-2" onClick={handleBackClick}>
-                <ArrowBigLeft className="h-3.5 w-3.5" />
-                <span className="lg:sr-only xl:not-sr-only xl:whitespace-nowrap">
-                  Back
-                </span>
-              </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1" onClick={handleHomeClick}>
-                <House className="h-3.5 w-3.5" />
-                <span className="lg:sr-only xl:not-sr-only xl:whitespace-nowrap">
-                  Home
-                </span>
-              </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1" onClick={handleMenuClick}>
-                <LayoutGrid className="h-3.5 w-3.5" />
-                <span className="lg:sr-only xl:not-sr-only xl:whitespace-nowrap">
-                  Menu
-                </span>
-              </Button>
+          </CardHeader>
+          <CardContent className="p-0 screencap-mirror text-sm">
+            {/* The screencap mirror will be inserted here by the updateScreencapMirror function */}
+          </CardContent>
+          <CardFooter className="flex flex-col justify-center border-t bg-muted/50 px-6 py-3">
+            <div>
+              <div className="flex justify-center gap-1">
+                <Button size="sm" variant="outline" className="h-8 gap-2" onClick={handleBackClick}>
+                  <ArrowBigLeft className="h-3.5 w-3.5" />
+                  <span className="lg:sr-only xl:not-sr-only xl:whitespace-nowrap">
+                    Back
+                  </span>
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 gap-1" onClick={handleHomeClick}>
+                  <House className="h-3.5 w-3.5" />
+                  <span className="lg:sr-only xl:not-sr-only xl:whitespace-nowrap">
+                    Home
+                  </span>
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 gap-1" onClick={handleMenuClick}>
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  <span className="lg:sr-only xl:not-sr-only xl:whitespace-nowrap">
+                    Menu
+                  </span>
+                </Button>
+              </div>
             </div>
-          </div>
-        </CardFooter>
-      </Card>
-    </div>
+          </CardFooter>
+        </Card>
+      </div>
+    </Draggable>
   );
 };
 

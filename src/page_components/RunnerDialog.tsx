@@ -23,7 +23,7 @@ import { Check, ChevronsUpDown, RefreshCcw, SaveIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { databaseService } from '@/services/DatabaseService'
 import { Badge } from "@/components/ui/badge"
-import { useAppDispatch } from '@/hooks/reduxHooks';
+import { useAppDispatch, useAppSelector } from '@/hooks/reduxHooks';
 import { addRunner } from '@/store/slices/runnersSlice';
 import RunnerFormObject from "./RunnerFormObject"
 import { Runner, SerializableRunner } from "@/types/Runner"
@@ -32,6 +32,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandList } from "@/components/ui/command"
 import { cn } from "@/lib/utils"
 import { Workflow } from "@/types/Workflow"
+import { RootState } from '@/store/store';
+import { Device } from '@/types/Device';
 
 export interface RunnerDialogProps {
   open: boolean;
@@ -39,6 +41,9 @@ export interface RunnerDialogProps {
   btnTitle?: string;
   runnerForm: Runner;
   setRunnerForm: (form: Runner, isSaved?: boolean) => void;
+  devices: Device[];
+  workflow: Workflow; // Add this line
+  isHideWorkflow?: boolean;
 }
 
 export function RunnerDialog({
@@ -47,11 +52,14 @@ export function RunnerDialog({
   btnTitle,
   runnerForm,
   setRunnerForm,
+  devices,
+  workflow,
+  isHideWorkflow,
 }: RunnerDialogProps) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [openWorkflow, setOpenWorkflow] = useState(false);
   const dispatch = useAppDispatch();
-
+  const [openDevice, setOpenDevice] = useState(false);
 
   useEffect(() => {
     const fetchWorkflows = async () => {
@@ -92,6 +100,12 @@ export function RunnerDialog({
     setOpenWorkflow(false);
   };
 
+  const handleDeviceChange = (value: string) => {
+    const newValue = runnerForm.deviceId === value ? undefined : value;
+    setRunnerForm((prevRunnerForm: Runner) => ({ ...prevRunnerForm, deviceId: newValue }));
+    setOpenDevice(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -102,7 +116,7 @@ export function RunnerDialog({
           <DialogTitle className="flex items-center">
             Runner for &nbsp;
             {
-              runnerForm.id &&
+              runnerForm.id && !isHideWorkflow &&
               <>
                 <Label htmlFor="workflow" className="ml-4 mr-2">
                   Workflow
@@ -145,6 +159,58 @@ export function RunnerDialog({
                                     className={cn(
                                       "ml-auto h-4 w-4",
                                       runnerForm.workflowId === workflow.id ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                </CommandItem>
+                              ))
+                            }
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <Label htmlFor="device" className="ml-4 mr-2">
+                  Device
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Popover open={openDevice} onOpenChange={setOpenDevice}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={openDevice}
+                        className="min-w-[220px] justify-between truncate"
+                      >
+                        {
+                          runnerForm.deviceId ? 
+                            devices.find((device) => device.id === runnerForm.deviceId)?.name : 
+                            "Select a device"
+                        }
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[200px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search a device" />
+                        <CommandList>
+                          <CommandEmpty>No device found.</CommandEmpty>
+                          <CommandGroup>
+                            {
+                              devices.map((device) => (
+                                <CommandItem
+                                  key={device.id}
+                                  value={device.id}
+                                  onSelect={() => handleDeviceChange(device.id)}
+                                  className={cn(
+                                    runnerForm.deviceId === device.id && "bg-accent"
+                                  )}
+                                >
+                                  {device.name}
+                                  <Check
+                                    className={cn(
+                                      "ml-auto h-4 w-4",
+                                      runnerForm.deviceId === device.id ? "opacity-100" : "opacity-0"
                                     )}
                                   />
                                 </CommandItem>

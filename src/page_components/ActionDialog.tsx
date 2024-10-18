@@ -27,6 +27,7 @@ import { Separator } from "@/components/ui/separator"
 import ActionFormTyping from "./ActionFormTyping"
 import ActionFormProcessData from "./ActionFormProcessData"
 import ActionFormApk from "./ActionFormApk"
+import ActionFormPress from "./ActionFormPress"
 import ActionFormRandomize from "./ActionFormRandomize"
 import ActionFormJavascript from "./ActionFormJavascript"
 import ActionFormWait from "./ActionFormWait"
@@ -94,6 +95,7 @@ export function ActionDialog({open, setOpen, btnTitle}: {open: boolean, setOpen:
                   <SelectItem value="typing">Typing</SelectItem>
                   <SelectItem value="processData">Process Data</SelectItem>
                   <SelectItem value="apk">APK</SelectItem>
+                  <SelectItem value="press">Press</SelectItem>
                   <SelectItem value="randomize">Randomize</SelectItem>
                   <SelectItem value="javascript">Javascript</SelectItem>
                   <SelectItem value="wait">Wait</SelectItem>
@@ -106,7 +108,7 @@ export function ActionDialog({open, setOpen, btnTitle}: {open: boolean, setOpen:
             <Input
               id="name"
               className="w-[40%] font-normal"
-              value={action.data?.label}
+              value={action?.data?.label}
               onChange={handleActionLabelChange}
             />
           </DialogTitle>
@@ -115,6 +117,7 @@ export function ActionDialog({open, setOpen, btnTitle}: {open: boolean, setOpen:
         {actionData.type === 'typing' && <ActionFormTyping />}
         {actionData.type === 'processData' && <ActionFormProcessData />}
         {actionData.type === 'apk' && <ActionFormApk />}
+        {actionData.type === 'press' && <ActionFormPress />}
         {actionData.type === 'javascript' && <ActionFormJavascript />}
         {actionData.type === 'wait' && <ActionFormWait />}
         {actionData.type === 'randomize' && <ActionFormRandomize />}

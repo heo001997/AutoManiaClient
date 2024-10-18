@@ -20,13 +20,13 @@ import {
 import { cn } from "@/lib/utils";
 import { databaseService, DatabaseService } from "@/services/DatabaseService";
 import { Dataset } from "@/types/Dataset";
+import { EnvService } from "@/services/EnvService";
 
 export default function RunnerFormObject({ runner, setRunner }: { runner: Runner, setRunner: (runner: Runner) => void }) {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [openPopoverId, setOpenPopoverId] = useState<number | null>(null);
 
   useEffect(() => {
-    console.log("runner changed: ", runner);
     const databaseService = new DatabaseService();
     databaseService.datasets.getAllDatasets().then((datasets) => {
       setDatasets(datasets);
@@ -34,42 +34,15 @@ export default function RunnerFormObject({ runner, setRunner }: { runner: Runner
   }, [runner]);
 
   const displaySample = (idx: number) => {
-    const currRunnerData = runner.data[idx];
-    
-    if (currRunnerData.type === "dataset" && currRunnerData.value !== "") {
-      const sample = datasets.find((dataset) => dataset.id.toString() === currRunnerData.value)?.data[0];
-      return JSON.stringify(sample || '');
-    } else if (currRunnerData.type === "variable") {
-      const [variableName, ...propertyPath] = currRunnerData.value.split('.');
-      
-      // Find the matching variable in runner.data
-      const matchingVariable = runner.data.find(data => data.variable === variableName);
-      
-      if (matchingVariable) {
-        let value;
-        if (matchingVariable.type === "dataset" && matchingVariable.value !== "") {
-          // If the matched variable is a dataset, get its sample
-          value = datasets.find((dataset) => dataset.id.toString() === matchingVariable.value)?.data[0];
-        } else {
-          // For other types, use the value directly
-          value = matchingVariable.value;
-        }
-
-        // If there's a property path, traverse the object
-        if (propertyPath.length > 0 && typeof value === 'object' && value !== null) {
-          try {
-            value = propertyPath.reduce((obj, prop) => obj[prop], value);
-          } catch (error) {
-            console.error('Error accessing nested property:', error);
-            return '';
-          }
-        }
-
-        return JSON.stringify(value || '');
+    const envService = new EnvService(datasets);
+    // Create a map of dataset values
+    const datasetIdMap = runner.data.reduce((acc, item) => {
+      if (item.type === 'dataset') {
+        acc[item.value.toString()] = '0'; // Set default value to '0'
       }
-      return '';
-    }
-    return currRunnerData.value;
+      return acc;
+    }, {} as Record<string, string>);
+    return envService.getRealValue(runner.data, idx, datasetIdMap);
   }
 
   const handleVariableChange = (e: React.ChangeEvent<HTMLInputElement>, idx: number) => {
@@ -140,6 +113,8 @@ export default function RunnerFormObject({ runner, setRunner }: { runner: Runner
   };
 
   const handleRemoveRunnerData = (idx: number) => {
+    if (runner.data.length === 1) return;
+
     setRunner((prevRunner: Runner) => {
       return { 
         ...prevRunner, 
